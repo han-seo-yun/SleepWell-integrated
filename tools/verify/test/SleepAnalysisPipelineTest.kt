@@ -61,7 +61,20 @@ object SleepAnalysisPipelineTest {
         directInputLowersSleepPressure()
         csvTakesPriorityOverDirectInput()
         epochIntervalChangesResult()
+        recommendationIsProduced()
         insufficientDataIsRejected()
+    }
+
+    /** 파이프라인은 더 이상 recommendation=null을 내보내지 않는다. */
+    private fun recommendationIsProduced() {
+        T.group("SleepAnalysisPipeline — 추천 통합")
+        val r = successOrNull(run(synthCsv(), null, EpochInterval.MIN1, null))
+        T.assertTrue("추천 객체 생성", r?.recommendation != null, "recommendation=null")
+        T.assertTrue(
+            "학습 전에는 물리모델 fallback으로 명시",
+            r?.recommendation?.modelStatus == "physics_only_untrained",
+            "status=${r?.recommendation?.modelStatus}"
+        )
     }
 
     /** 기본 경로: CSV 하나가 들어오면 S/C/propensity 가 나오고 세션이 1개 잡힌다. */

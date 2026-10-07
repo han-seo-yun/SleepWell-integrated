@@ -16,6 +16,8 @@ fun main() {
     EpochGridTest.run()
     SleepEpochConverterTest.run()
     TwoProcessModelTest.run()
+    RidgeResidualModelTest.run()
+    HybridRecommendationEngineTest.run()
     SleepAnalysisPipelineTest.run()
 
     val code = T.summary()

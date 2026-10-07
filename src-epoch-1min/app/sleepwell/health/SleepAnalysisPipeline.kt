@@ -64,7 +64,10 @@ object SleepAnalysisPipeline {
         directInput: DirectInput? = null,
         referenceTimeMs: Long? = null,
         epochInterval: EpochInterval = EpochInterval.DEFAULT,
-        alignToEpochBoundary: Boolean = true
+        alignToEpochBoundary: Boolean = true,
+        residualModel: RidgeResidualModel? = null,
+        predictionFeatures: Map<String, Double?> = emptyMap(),
+        targetSleepMin: Double? = null
     ): HealthResult<AnalysisResult> {
         return try {
             // ── 1. CSV 파싱 ──────────────────────────────────────────
@@ -149,6 +152,18 @@ object SleepAnalysisPipeline {
                 )
             }
 
+            val personalSleepTarget = targetSleepMin ?: medianSleepMinutes(sleepRecords)
+            val futurePoints = futureSPoints.map {
+                PredictedPoint(it.timestampMs, it.predictedS, it.predictedC, it.predictedPropensity)
+            }
+            val recommendation = HybridRecommendationEngine.recommend(
+                future = futurePoints,
+                directInput = directInput,
+                residualModel = residualModel,
+                features = predictionFeatures,
+                targetSleepMin = personalSleepTarget
+            )
+
             // ── 10. AnalysisResult 조립 ──────────────────────────────
             HealthResult.Success(AnalysisResult(
                 currentS = processOutput.currentS,
@@ -156,9 +171,9 @@ object SleepAnalysisPipeline {
                 currentPropensity = processOutput.currentPropensity,
                 sleepRecords = sleepRecords,
                 scHistory = scHistory,
-                futureS = futureSPoints.map { PredictedPoint(it.timestampMs, it.predictedS, it.predictedC, it.predictedPropensity) },
-                recommendation = null,       // "준비 중" — 서윤 언니 담당
-                modelVersion = "Two-Process Kotlin 모델 (기준 코드 일치) · epoch ${epochInterval.label}",
+                futureS = futurePoints,
+                recommendation = recommendation,
+                modelVersion = "Two-Process + Ridge residual · epoch ${epochInterval.label}",
                 calculationTimeMs = System.currentTimeMillis(),
                 epochIntervalMs = epochInterval.intervalMs,
                 epochIntervalLabel = epochInterval.label,
@@ -170,6 +185,15 @@ object SleepAnalysisPipeline {
             e.printStackTrace(PrintWriter(sw))
             HealthResult.Failure(e)
         }
+    }
+
+    private fun medianSleepMinutes(records: List<SleepRecord>): Double {
+        val values = records.map { it.totalSleepMin }.filter { it > 0.0 }.sorted()
+        if (values.isEmpty()) return 480.0
+        val n = values.size
+        val median = if (n % 2 == 1) values[n / 2]
+        else (values[n / 2 - 1] + values[n / 2]) / 2.0
+        return median.coerceIn(360.0, 600.0)
     }
 
     // ────────────────────────────────────────────────

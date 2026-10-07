@@ -136,7 +136,22 @@ data class Recommendation(
     val recommendedWakeTimeMs: Long?,
 
     /** 권장 수면시간 (분). 현재 모델에는 없어 null 가능. */
-    val recommendedSleepMin: Double?
+    val recommendedSleepMin: Double?,
+
+    /** Two-Process 모델이 고른 기준 취침·기상 시각. */
+    val physicalBedTimeMs: Long? = null,
+    val physicalWakeTimeMs: Long? = null,
+
+    /** 물리 기준에 Ridge 잔차를 더한 개인화 예측 시각. */
+    val predictedBedTimeMs: Long? = null,
+    val predictedWakeTimeMs: Long? = null,
+    val bedtimeResidualMin: Double? = null,
+    val wakeResidualMin: Double? = null,
+
+    /** 화면에서 미학습 fallback과 학습 완료 모델을 혼동하지 않게 하는 표시값. */
+    val residualModelVersion: String? = null,
+    val modelStatus: String = "physics_only_untrained",
+    val usedFallback: Boolean = true
 )
 
 // ────────────────────────────────────────────────

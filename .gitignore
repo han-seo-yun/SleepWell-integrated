@@ -3,6 +3,9 @@
 
 # Python 스크립트 (보고서 생성용)
 *.py
+!tools/model/*.py
+__pycache__/
+*.pyc
 
 # PDF 보고서 (저장소에는 불필요, 별도 공유)
 *.pdf
@@ -28,7 +31,9 @@ build/
 tools/verify/out/
 tools/verify/test-out/
 *.jar
+!android-app/gradle/wrapper/gradle-wrapper.jar
 buggy-src/
+work/
 
 # 개인 데이터·스크린샷 (커밋 금지)
 sleepwell 결과 예시.jpg
