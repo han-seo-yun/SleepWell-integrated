@@ -4,6 +4,11 @@
 # Python 스크립트 (보고서 생성용)
 *.py
 !tools/model/*.py
+!web-app/*.py
+!web-app/tests/*.py
+web-app/.local/
+web-app/.venv/
+._*
 __pycache__/
 *.pyc
 
