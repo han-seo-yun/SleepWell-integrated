@@ -234,9 +234,9 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=False)
-    source = args.workspace/"260925/한서윤데이터_전처리/output"
+    source = args.workspace/"보조데이터셋/개인기록_과거작업/260925/한서윤데이터_전처리/output"
     paths = [source/f"{name}.parquet" for name in ["sleep_episodes", "heart_rate_1min", "steps_10min"]]
-    nh_path = args.workspace/"보조 데이터/processed/nhanes_2017_adult_activity_sleep.parquet"
+    nh_path = args.workspace/"보조데이터셋/processed/nhanes_2017_adult_activity_sleep.parquet"
     manifest = {"source_sha256": {str(p.relative_to(args.workspace)): digest(p) for p in paths+[nh_path]},
                 "code_sha256": digest(__file__), "python": platform.python_version(),
                 "pandas": pd.__version__, "numpy": np.__version__, "sklearn": sklearn.__version__,

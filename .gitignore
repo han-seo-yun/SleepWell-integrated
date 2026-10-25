@@ -8,6 +8,9 @@
 !web-app/tests/*.py
 web-app/.local/
 web-app/.venv/
+web-app/models/*
+!web-app/models/*.json
+web-app/data/
 ._*
 __pycache__/
 *.pyc
@@ -35,10 +38,27 @@ build/
 # 스크립트(.kt/.ps1)만 커밋하고 빌드 결과는 제외한다.
 tools/verify/out/
 tools/verify/test-out/
+tools/verify/android-user-model-test/classes/
+desktop/bin/
 *.jar
+*.class
+*.exe
 !android-app/gradle/wrapper/gradle-wrapper.jar
 buggy-src/
 work/
+
+# 로컬 개인정보·동기화 상태·자격 증명 (커밋 금지)
+*.db
+*.sqlite
+*.sqlite3
+*.pfx
+*.p12
+*.pem
+*.key
+local.properties
+.env
+.env.*
+!.env.example
 
 # 개인 데이터·스크린샷 (커밋 금지)
 sleepwell 결과 예시.jpg

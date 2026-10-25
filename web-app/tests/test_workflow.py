@@ -39,24 +39,31 @@ class WorkflowTests(unittest.TestCase):
         self.assertGreaterEqual(r["sleep_opportunity_min"],r["target_sleep_min"]+20)
         self.assertEqual(len(r["chart"]),145)
 
-    def test_day14_requires14_observations_and_updates_with_feedback(self):
+    def test_daily_personalization_starts_with_first_observation_and_updates_with_feedback(self):
         now=self.start+timedelta(days=14)
-        self.assertEqual(parameters(self.p,self.records(13),now)["mode"],"initial")
+        one=parameters(self.p,self.records(1),now)
+        self.assertEqual(one["mode"],"personalized")
+        self.assertGreater(one["personalization_weight"],0)
+        self.assertLess(one["personalization_weight"],.1)
         q=parameters(self.p,self.records(14),now)
         self.assertEqual(q["mode"],"personalized")
         self.assertEqual(q["valid_days"],14)
-        self.assertEqual(q["average_steps"],7000)
-        self.assertEqual(q["latency_min"],17.5)
+        self.assertGreater(q["average_steps"],6000)
+        self.assertLess(q["average_steps"],7000)
+        self.assertGreater(q["latency_min"],17.5)
+        self.assertLess(q["latency_min"],20)
         self.assertNotEqual(q["target_sleep_min"],510)
         self.assertEqual(q["tau_wake_h"],18.2)
         later=parameters(self.p,self.records(21),self.start+timedelta(days=21))
         self.assertGreater(later["average_steps"],q["average_steps"])
 
-    def test_archive_and_future_do_not_unlock_personalization(self):
+    def test_archive_and_future_are_excluded_but_completed_history_updates(self):
         records=self.records(20)
         for r in records:r["source"]="archive"
         self.assertEqual(parameters(self.p,records,self.start+timedelta(days=20))["valid_days"],0)
-        self.assertEqual(parameters(self.p,self.records(20),self.start+timedelta(days=13))["mode"],"initial")
+        result=parameters(self.p,self.records(20),self.start+timedelta(days=13))
+        self.assertEqual(result["mode"],"personalized")
+        self.assertEqual(result["valid_days"],13)
 
     def test_clock_wrap_and_after_midnight(self):
         self.assertEqual(clock_delta(5,1435),10)

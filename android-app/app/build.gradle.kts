@@ -13,8 +13,8 @@ android {
         // Samsung Health Data SDK 실기기 조건과 일치시킨다.
         minSdk = 29
         targetSdk = 37
-        versionCode = 1
-        versionName = "0.1"
+        versionCode = 6
+        versionName = "0.4.2"
     }
 
     buildTypes {

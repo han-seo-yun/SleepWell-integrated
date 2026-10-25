@@ -58,7 +58,7 @@ def main():
     p.add_argument("--output", type=Path, required=True)
     a = p.parse_args()
     a.output.mkdir(parents=True, exist_ok=False)
-    pre = a.workspace/"전처리데이터/MMASH_전처리/mmash_model_preout_30s_clean.csv.gz"
+    pre = a.workspace/"데이터셋/전처리데이터/MMASH_전처리/mmash_model_preout_30s_clean.csv.gz"
     d = prepare_mmash(pd.read_csv(pre))
     mm = a.output/"mmash_conditional"
     mm.mkdir()
@@ -84,12 +84,12 @@ def main():
     reference_info = {}
     for name in ["age_activity_sleep_reference", "age_steps_reference",
                  "age_light_activity_reference", "age_hourly_light_reference"]:
-        path = a.workspace/f"보조 데이터/processed/{name}.csv"
+        path = a.workspace/f"보조데이터셋/processed/{name}.csv"
         table = pd.read_csv(path)
         table.to_parquet(refs/f"{name}.parquet", index=False)
         reference_info[name] = {"rows": len(table), "columns": list(table.columns),
                                 "sha256": digest(path), "used_as_training_rows": False}
-    candidate_path = a.workspace/"보조 데이터/processed/candidate_age_priors.json"
+    candidate_path = a.workspace/"보조데이터셋/processed/candidate_age_priors.json"
     candidate = json.loads(candidate_path.read_text(encoding="utf-8"))
     candidate["auto_apply"] = False
     dump(refs/"candidate_age_priors.json", candidate)

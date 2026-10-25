@@ -94,9 +94,7 @@ class MainActivity : ComponentActivity() {
  * 채윤의 구현이 들어오면:
  *   SamsungHealthSource(context)  를 돌려주고, 실패 시 FakeDataSource() 로 떨어지게 한다.
  */
-private fun dataSourceOf(useFake: Boolean, @Suppress("UNUSED_PARAMETER") context: Context): HealthDataSource =
-    if (useFake) FakeDataSource()
-    else FakeDataSource()   // TODO(채윤 연동): SamsungHealthSource(context) 로 교체
+private fun dataSourceOf(@Suppress("UNUSED_PARAMETER") context: Context): HealthDataSource = FakeDataSource()
 
 /** 파일 크기 표시. 1KB 미만은 바이트로 그대로 보여준다. */
 private fun fileSizeText(bytes: Long): String =
@@ -113,7 +111,6 @@ fun CollectorScreen() {
     var days by remember { mutableStateOf(7) }
     var endShiftDays by remember { mutableStateOf(0) }      // 0 = 오늘까지
     var watchOnly by remember { mutableStateOf(true) }
-    var useFake by remember { mutableStateOf(true) }
 
     var loading by remember { mutableStateOf(false) }
     var snapshot by remember { mutableStateOf<HealthSnapshot?>(null) }
@@ -132,7 +129,7 @@ fun CollectorScreen() {
             .verticalScroll(rememberScrollState())
             .padding(16.dp)
     ) {
-        Text("Sleepwell 데이터 수집", style = MaterialTheme.typography.headlineSmall)
+        Text("Sleepwell 연구용 가상 데이터 데모", style = MaterialTheme.typography.headlineSmall)
         Text(
             "웨어러블 건강 데이터를 조회해 30초 epoch CSV 로 내보냅니다.",
             style = MaterialTheme.typography.bodySmall
@@ -180,18 +177,11 @@ fun CollectorScreen() {
             Switch(checked = watchOnly, onCheckedChange = { watchOnly = it })
             Text("  시계 데이터만 (폰 자체 기록·수동 입력 제외)")
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Switch(checked = useFake, onCheckedChange = { useFake = it })
-            Text("  가상 데이터 사용")
-        }
-        if (useFake) {
-            Text(
-                "⚠ 지금은 가상 데이터입니다. 내보낸 파일에는 source=\"fake\" 와 파일명 _FAKE 가 붙어 " +
-                        "실제 측정값과 구분됩니다. 연구용 학습에 쓰지 마세요.",
-                style = MaterialTheme.typography.bodySmall,
-                color = Color(0xFFB25E00)
-            )
-        }
+        Text(
+            "⚠ 이 화면은 항상 가상 데이터만 만듭니다. 내보낸 파일에는 source=\"fake\" 와 파일명 _FAKE 가 붙습니다. 실제 측정값이나 연구용 학습에 쓰지 마세요.",
+            style = MaterialTheme.typography.bodySmall,
+            color = Color(0xFFB25E00)
+        )
 
         Spacer(Modifier.height(16.dp))
 
@@ -203,7 +193,7 @@ fun CollectorScreen() {
                 exported = null
                 analysis = null
                 scope.launch {
-                    val src = dataSourceOf(useFake, context)
+                    val src = dataSourceOf(context)
                     val result = withContext(Dispatchers.Default) {
                         val q = HealthQuery(startMs, endMs, watchOnly)
                         if (!src.isAvailable()) null

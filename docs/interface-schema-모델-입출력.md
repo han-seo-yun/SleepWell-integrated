@@ -1,190 +1,106 @@
-# 모델 입력·출력 형식 설계
-**작성자:** 채윤 | **날짜:** 2026-09-24 | **상태:** 합의용 초안
+# 모델 입력·출력: 현재 실행 계약
 
----
+원 초안: 채윤, 2026-09-24. 코드 대조 갱신: 2026-10-20, 서윤 담당 모델 검증 작업.
 
-## 1. 배경
-- 실제 모델(서윤 #7 S-C + Wearable Hybrid)은 아직 확정되지 않음
-- 이번 주 MVP: **연결 구조만 잡는다**. 실제 Python 연결은 통합 단계에서 수행
-- 아래 형식은 **참고 기준**: 공용 드라이브 Two-Process 코드 + md #5 결과 항목 요구 사항 기반
+이 문서는 현재 `web-app` 코드의 동작을 설명한다. 팀의 새로운 합의를 대신하지 않는다. Kotlin 임시 연결을 설명한 [이전 초안](../archive/historical-documents/interface-schema-모델-입출력.md)은 보존한다. 현재 웹앱에는 S·C 계산과 권장 시각 계산이 구현되어 있으므로 과거의 “준비 중” 설명을 현재 상태로 사용하지 않는다.
 
----
+## 1. 모델 세 가지의 역할
 
-## 2. 모델 입력 형식
-
-### 2-1. Two-Process 기준 입력 (현재 공용 코드)
-공용 드라이브 Two-Process 코드가 예상하는 입력:
-
-| 항목 | 형식 | 설명 |
+| 구성 | 입력 → 출력 | 현재 적용 범위 |
 |---|---|---|
-| `timestamp` | 배열 (epoch 초 또는 ms) | 30초 간격 시계열 |
-| `is_sleep` | 배열 (0/1) | 해당 시점에 수면 중이면 1, 아니면 0 |
+| `web-app/engine.py` | 사용자 프로필·완료 수면 이력 → S, C, 조건부 미래 곡선, 권장 시각 | `sleep-improvement-v1` 연구용 정책. 수면 개선 효과는 미검증 |
+| `web-app/forecast_model.py` 및 `research.py` | 과거 기록 → 이후 취침·기상 행동 시각 | 휴대형(portable) 모델과 구형(legacy) 개발 모델의 경로가 다름. 아래 계약 참조. 권장 시각 계산에는 미사용 |
+| `tools/model/mesa_psg_experiments.py` | MESA 손목 활동·조도 → 해당 관측 구간의 PSG 수면/각성 분류 | 연구용 회고적 분류. 일지 입력 계약 및 다음날 예측과 다름 |
 
-예시:
-```
-timestamp = [t0, t0+30s, t0+60s, ...]
-is_sleep  = [0,   0,      1,      ...]
-```
+`server.py`는 `recommend()` 결과에 별도 `behavioral_forecast`를 붙인다. 연구 모델이 저장되어 있다는 사실만으로 웹에 연결되거나 효과가 검증된 것은 아니다.
 
-> **주의:** pandas 3.x에서는 시각이 마이크로초 단위로 읽혀, 기존 코드가 가정한 나노초 기준과 달라진다. → S 값이 거의 변하지 않는 오류 발생 (예: 2시간 수면 후 기대 0.31 → 실제 0.4998). 팀장 공유 완료.
+## 2. 현재 정책 모델의 입력
 
-### 2-2. 앱(Kotlin) 기준 입력 데이터 구성
-백엔드가 모델(Python)에 전달할 데이터:
+`recommend(profile, records, now, prior=None)` 호출 전에 프로필과 수면 기록을 검증한다. 웹의 프로필/기록 API가 저장 시 검증하고, 서버가 가입 시각을 관리한다.
 
-**A. 수면 이력 (CSV 기반)**
-```
-List<EpochInput>:
-  - timestampMs: Long    // KST epoch ms
-  - isSleep:     Boolean // 수면 중 여부
-```
-→ `sleep_stage_cleaned.csv`의 stage 구간을 30초로 분할하여 생성
-
-**B. 사용자 직접 입력 (선택)**
-```
-DirectInput:
-  - sleepStartMs: Long?   // 취침 시각 (KST epoch ms)
-  - sleepEndMs:   Long?   // 기상 시각 (KST epoch ms)
-  - targetWakeMs: Long?   // 목표 기상 시각 (선택)
-  - plannedBedMs: Long?   // 예정 취침 시각 (선택)
-```
-
-### 2-3. 입력 구성 요약
-```
-모델 입력 = [
-  { timestampMs: 2026-09-13 18:24:00 KST → epoch ms, isSleep: false },
-  { timestampMs: 2026-09-13 18:24:30 KST → epoch ms, isSleep: false },
-  { timestampMs: 2026-09-13 18:25:00 KST → epoch ms, isSleep: true  },
-  ...
-]
-+ (직접 입력 있으면) sleepStartMs, sleepEndMs, targetWakeMs, plannedBedMs
-```
-
----
-
-## 3. 모델 출력 형식
-
-### 3-1. md #5 결과 항목 요구 사항
-결과 화면에 표시해야 하는 항목:
-
-| # | 항목 | 설명 |
+| 구분 | 필드·단위 | 의미 |
 |---|---|---|
-| 1 | 최근 수면 및 활동 기록 | 수면 세션 요약, 단계별 분포 |
-| 2 | 현재 Process S (수면 압력) | 현재 시점의 수면 압력 값 (0~1) |
-| 3 | 현재 Process C (일주기 리듬) | 현재 시점의 일주기 리듬 값 |
-| 4 | S-C / sleep propensity 변화 | 수면 성향 변화 (S-C 점수 시계열) |
-| 5 | 앞으로의 수면 압력 변화 | 향후 24시간 Process S 예측 시계열 |
-| 6 | 예상/권장 취침 시각 | 모델로 계산한 권장 취침 시각 |
-| 7 | 권장 기상 시각 | 모델로 계산한 권장 기상 시각 |
-| 8 | 권장 수면시간 | 권장 수면 지속 시간 |
-| 9 | (가능하다면) 목표 기상/예정 취침 입력 시 계산 | 사용자 입력 조건 기반 취침·수면시간 |
+| 프로필 | `name`, `age`, `occupation`, `created_at` | 사용자 정보, 가입 시각 |
+| 시계 시각 | `usual_bed`, `usual_wake`, `target_wake`, `weekend_wake`: `HH:MM` | 평소 패턴과 기상 제약 |
+| 수면·활동 기준 | `usual_sleep_h`, `desired_sleep_h`: 시간; `latency_min`, `exercise_min`: 분; `average_steps`: 걸음 | 초기 정책 파라미터 |
+| 과거 자료 연결 | `link_history`: boolean, 선택적 `prior` | 명시적으로 연결한 본인 과거 기록의 참고 통계 |
+| 완료 기록 | `bed`, `wake`: ISO 8601 시각; 선택적 `latency_min`, `awake_min`, `fatigue`, `rested`, `steps`, `exercise_min` | 완료된 수면. `sleep_min`은 침대에 있던 시간에서 입면·각성을 뺀 값 |
+| 서버가 부여하는 관측 출처 | `source`, `observed_at` | 현재 `/api/record`는 `source=diary`, `observed_at=등록 시각`으로 저장한다. 임의의 과거 관측 시각을 입력받지 않는다 |
 
-### 3-2. 모델 출력 구조 (설계안)
+내부 시각 기준은 `Asia/Seoul`이다. 오프셋이 있는 입력은 같은 절대 시각을 유지하며 KST로 변환하고, 오프셋이 없는 입력은 KST로 해석한다. Unix epoch는 시간대와 별개인 절대 시각이므로 “KST epoch”를 별도의 숫자 체계로 정의하지 않는다. 다른 앱과 연동할 때 초·밀리초·마이크로초·나노초를 명시적으로 변환한다. 이 웹 정책 경로는 pandas 정수 시각을 나노초로 가정하지 않고 `datetime` 차이의 초를 사용한다. 과거 노트북의 시간 단위 문제까지 수정했다는 의미는 아니다.
 
-```
-AnalysisResult:
-  // 현재 상태
-  currentS:        Float        // 현재 Process S 값 (0~1)
-  currentC:        Float        // 현재 Process C 값
-  currentPropensity: Float      // 현재 S-C score / sleep propensity
+정규화된 기록을 받는 모델 함수에는 `source=healthkit` 지원이 있지만, 현재 서버에 HealthKit 수집 API가 구현되어 있다는 뜻은 아니다. 현재 기록 입력 API는 일지 경로다.
 
-  // 과거 이력 (최근 수면 기준)
-  sleepRecords:    List<SleepRecord>
-    SleepRecord:
-      - sessionId:   String
-      - startMs:     Long
-      - endMs:       Long
-      - totalMin:    Float
-      - stageSummary: Map<SleepStage, Float>  // 단계별 시간(분)
+## 3. 물리식의 부호와 파라미터
 
-  // S-C 시계열 (과거 ~ 현재)
-  scHistory:       List<PropensityPoint>
-    PropensityPoint:
-      - timestampMs: Long
-      - S:           Float
-      - C:           Float
-      - propensity:  Float
+현재 코드의 convention은 **`propensity = S + C_sleep`**이다.
 
-  // 미래 예측 (향후 24시간)
-  futureS:         List<PredictedPoint>
-    PredictedPoint:
-      - timestampMs: Long
-      - predictedS:  Float
+- 수면 시: `S_next = S * exp(-Δt_hours / 4.2)`.
+- 각성 시: `S_next = 1 - (1-S) * exp(-Δt_hours / 18.2)`.
+- `C_sleep = 0.15 * cos(2π * (clock_min - phase_min) / 1440)`.
+- S는 0~1의 정규화된 모델 상태, C는 −0.15~+0.15다. propensity는 두 값의 합이며 확률이 아니다. 이론상 −0.15~1.15가 가능하다.
+- C의 양수 방향은 이 정의에서 수면 성향을 더한다. 각성 촉진 C를 쓰는 `S-C` 식과 부호만 혼용하면 안 된다. 위상과 C 정의를 함께 비교해야 한다.
 
-  // 권장 사항
-  recommendation:
-    - recommendedBedTimeMs:   Long?   // 권장 취침 시각 (KST epoch ms)
-    - recommendedWakeTimeMs:  Long?   // 권장 기상 시각 (KST epoch ms)
-    - recommendedSleepMin:    Float?  // 권장 수면 시간 (분)
-    - conditionedBedTimeMs:   Long?   // 목표 기상/예정 취침 입력 시 계산값
-    - conditionedSleepMin:    Float?
+S는 7일 전 0.5에서 시작해 5분 간격으로 재구성한다. 기록 없는 날은 사용자가 입력한 평소 패턴으로 보완한다. 따라서 직접 측정한 생리적 압력이 아니며, 낮잠과 밤중 각성의 실제 시각은 완전히 재현되지 않는다.
 
-  // 계산 기준 정보
-  - modelVersion:    String
-  - calculationTimeMs: Long   // 계산 수행 시각
-  - inputPeriodStartMs: Long
-  - inputPeriodEndMs:   Long
-```
+초기 위상은 평소 취침·기상의 중간 시각이다. 가입 후 경과 14일 및 가입 이후 누적 유효 관측 14일을 모두 만족하면 위상·수면 목표·입면시간·활동 기준을 제한적으로 보정한다. 장기 개인화 기록은 28일이 지나도 유지하며 개인 비중은 n/(n+14)다. τw=18.2시간, τs=4.2시간 및 C 진폭은 고정이며 개인별로 학습한 생리 상수가 아니다.
 
-### 3-3. 출력 값의 범위 및 의미
+## 4. 현재 정책 출력과 해석
 
-| 값 | 범위 | 의미 |
-|---|---|---|
-| S (Process S) | 0 ~ 1 | 0=완전히 rested, 1=극도로 졸림 |
-| C (Process C) | -1 ~ 1 | 일주기 리듬 위상 (음수=수면 적합, 양수=각성 적합) |
-| sleep propensity (S-C) | 해석적 | S+C 또는 S-C 점수, 수면 가능성 지표 |
-| 권장 취침 시각 | epoch ms (KST) | 수면 압력이 낮아질 것으로 예측되는 시각 |
-| 권장 기상 시각 | epoch ms (KST) | 일주기 리듬 + 수면 압력 기준 적절한 기상 시각 |
+| 필드 | 실제 형식·해석 |
+|---|---|
+| `policy_version`, `objective`, `generated_at`, `plan_date` | 버전·목적·생성 기준 |
+| `bed`, `wake`, `wind_down` | 오프셋 포함 ISO 8601. 기상 제약과 수면 기회를 반영한 권장 계획 |
+| `sleep_opportunity_min` | 권장 취침~기상 사이의 시간. 실제로 잠든 시간의 보장이 아님 |
+| `target_sleep_min`, `feasible` | 정책상 목표 및 시간 확보 가능 여부 |
+| `current_s` | 과거 이력과 보완 가정으로 재구성한 S |
+| `chart` | 10분 간격 145개 점, 현재부터 24시간. 각 점은 `time`, `s`, `c`, `propensity` |
+| `parameters`, `reasons`, `warnings`, `evidence` | 계산 기준·입력 출처·제약·검증 수준 |
 
----
+`chart`의 미래 S는 **계속 깨어 있다고 가정한 조건부 경로**다. 실제 취침/기상 행동을 예측하여 수면 중 S 감소를 반영한 곡선이 아니다. 권장 시각은 목표 기상·수면시간·입면 여유·최근 부족분·규칙성에 따른 정책 비교 결과다. 데이터에서 관측된 취침 시각을 맞히는 회귀 모델의 정답으로 취급하지 않는다.
 
-## 4. 모델 연결 방식 (현재 미확정 부분)
+이전 Kotlin 설계의 `currentC`, `futureS`, `recommendedBedTimeMs`와 현재 웹의 필드 이름·구조는 다르다. 어댑터 없이 이름만 맞춰 연결하지 않는다. 현재 C와 propensity는 `chart[0]`에 있다.
 
-### 4-1. 현재 상태
-- 공용 드라이브 Two-Process 코드: Python, `timestamp` + `is_sleep(0/1)` 입력 → `S, C_sleep, sleep_propensity` 출력
-- **한계:** 과거 기록의 S·C만 계산. 미래 예측·권장 시각 계산 기능 없음
+## 5. 행동 예측 계약
 
-### 4-2. 연결 방식 (소빈 답변 반영)
+### 5-1. 휴대형 모델
 
-**합의된 방향:**
-- Two-Process 공용 코드 사용. S·C·propensity 계산 부분(약 20줄)만 **Kotlin으로 옮겨서 임시 모델**로 사용
-- 모델 입력을 python용 형식으로 따로 만들 필요 없음 — Kotlin에서 만든 epoch 리스트를 그대로 사용
-- 파라미터는 코드 기본값 사용, 확정값이 아니므로 "임시 모델"로 표시
+`forecast_model.py`의 계약은 `web_completed_history_pre20_v1`, 파일 유형은 `sleepwell_behavior_clock_linear`다. 최근 28일 안에서 최대 7회의 완료된 diary/HealthKit 기록을 사용한다. `wake`와 `observed_at`이 모두 결정 기준 20:00보다 이른 기록만 사용할 수 있다.
 
-**연결 파이프라인 (Kotlin 내부):**
-```
-CSV → SleepSession 리스트
-  → 30초 epoch 변환 (timestampMs, isSleep) — 세션 사이 깨어 있던 시간 포함 전체 타임라인
-  → Kotlin으로 옮긴 Two-Process 계산 함수 호출
-  → S, C, propensity 계산 (과거~현재)
-  → futureS, 권장 시각은 아직 없음 → "준비 중" / 임시 정의(가이드라인 수준)
-  → AnalysisResult 생성 → 소빈(프론트) 전달
-```
+정해진 여섯 특징은 과거 취침/기상 offset 중앙값, 과거 수면 구간 길이 중앙값, 직전 구간 길이, 이력 수, 주말 여부다. offset은 20:00 이후 분 단위다. 해당 길이는 `bed`~`wake` 구간 길이이며 PSG 총수면시간과 동일하지 않다.
 
-**모델 호출 시점:** CSV 업로드 직후 백그라운드 계산. 사용자 조건(목표 기상·예정 취침) 변경 시 재계산. 결과 화면 진입 시 이미 계산되어 있음.
+정확한 특징 순서·단위·전처리·두 target·집단 범위·평가 gate를 통과한 파일만 불러온다. 이 모델 함수는 적용 집단이나 이력이 맞지 않으면 `available=false`와 이유를 반환한다. 성공 시 `bed`, `wake`, `cutoff`, `model_version`, `feature_contract`, `observed_history_records`를 반환하고 “과거 행동패턴 참고 · 권장 시각 계산에는 미사용” 역할을 명시한다.
 
-**미래 기능 담당:**
-- 미래 S 예측·권장 시각 계산: **서윤 언니 담당** (모델 쪽)
-- 이번 주 MVP: 앱 쪽에 **임시 배치**. 서윤 언니 정의가 나오면 교체·맞춤
-- 권장 시각·futureS 필드는 "준비 중" 표시, 임시값 사용 시 "임시 모델(분석 화면 출력을 확인하는 정도)"이라고 명시
+### 5-2. 현재 앱에 남아 있는 구형 개발 모델 경로
 
----
+`research.py`는 portable 예측이 실패하거나 없을 때에도, 사용자가 본인 과거 자료 연결을 켰고 구형 로컬 모델 두 개를 읽었다면 legacy 경로를 사용한다. 따라서 portable의 거절이 최종 앱 응답의 `available=false`를 항상 뜻하지는 않는다.
 
-## 5. 소빈 ↔ 채윤 모델 입출력 합의 포인트
+legacy는 20:00 이전 bed/wake의 최근 7개 기록을 사용하지만 28일 범위와 `observed_at` 조건을 검사하지 않는다. 센서가 없는 웹 입력에서는 해당 특징을 기존 학습 중앙값으로 대치한다. 출력은 `available`, `cutoff`, `bed`, `wake`, `role`, `warning`이며 portable의 버전·특징 계약·관측 개수 필드가 없다. 별도 모델 상태 응답에는 `source=legacy`, `model_version=legacy-local-development`가 표시된다.
 
-| # | 항목 | 내용 (소빈 답변 확정) |
-|---|---|---|
-| 1 | 모델 호출 시점 | **CSV 업로드 직후 백그라운드 계산**. 사용자 조건 변경 시 재계산. 결과 화면 진입 시 이미 준비됨 |
-| 2 | 모델 출력 형식 | Kotlin 객체 직접 전달 (같은 앱 내). JSON 직렬화 불필요 |
-| 3 | S·C·propensity 단위/범위 | Two-Process 코드 기본값. "임시 모델"로 표시 |
-| 4 | futureS 그래프 간격 | **계산은 촘촘하게(30초), 전달·그래프는 10~15분 간격** |
-| 5 | 권장 시각 없을 때 처리 | **"준비 중" 표시**. 임시값 사용 시 "임시 모델(분석 화면 확인용)" 명시 |
-| 6 | 입력 타임라인 구성 | **수면 구간만이 아닌, 세션 사이 깨어 있던 시간까지 이어진 전체 타임라인**. 수면 칸만 넣으면 사이를 전부 수면으로 계산해 S가 틀어짐 |
+이 경로를 portable의 정보 누수 방지·집단 적용 규칙을 통과한 모델처럼 인계하면 안 된다. 현재 UI의 경고처럼 기존 테스트 성능을 그대로 적용할 수 없는 개발용 참고 결과다. 이번 작업에서는 실행 동작을 바꾸지 않고 차이를 문서화했다. 검증된 휴대형 모델로 전환할 때 legacy fallback의 유지 여부를 별도로 정해야 한다.
 
----
+MESA 모델은 센서 입력이 필요하므로 이 계약의 대체 파일로 사용할 수 없다. 개인 센서 결합 모델도 일지-only 모델로 변환 없이 연결할 수 없다.
 
-## 6. 참고
-- Two-Process 코드: S·C·propensity 계산 부분(약 20줄)을 Kotlin으로 옮겨 임시 모델로 사용
-- 입력 형식: Kotlin에서 만든 epoch 리스트를 그대로 사용 (Python용 별도 형식 불필요)
-- 서윤 #7 Hybrid 모델 확정 시 이 문서의 입력/출력 구조를 재검토하고, 임시 Kotlin 모델을 교체
-- 서윤 #8 공통 스키마 확정 시 데이터 열 구성을 맞춘다
-- 미래 S 예측·권장 시각: 서윤 언니 담당. 이번 주는 앱 쪽 임시 배치 → 서윤 정의 후 교체
+## 6. 서윤 담당 인계 기준
+
+현재 코드와 문서를 기준으로 S·C 부호/단위/위상, 입력 시각, 결측 보완, 출력 의미를 일치시켰다. 물리 정책의 수면 개선 효과, 새로운 사용자의 다음 취침/기상 예측 개선, 개인별 τ 식별은 이번 코드 확인이나 MESA PSG 평가만으로 완료되지 않는다.
+
+이후 후보를 교체할 때는 같은 입력·같은 목적에서 기존 기준선과 비교하고, 새로운 사용자/기간의 평가 자료를 분리하며, 모델 버전과 전처리·파라미터·불확실성을 함께 기록한다. 임의로 `research_only` 표시를 해제하지 않는다. 자세한 최신 분석은 [PSG 검증 보고](RESEARCH_PSG_RESULTS_2026-10-20.md)를 참조한다.
+
+## 7. 다음날 융합 예측·누적 개인화 추가 계약 (2026-10-20)
+
+새 예측은 `next_night_forecast`에 저장한다. 기존 `behavioral_forecast`와 별도이며 구형 모델로 조용히 대체하지 않는다. `night_core.py`는 학습과 앱이 함께 쓰는 `sleepwell_next_night_pre20_v1` 특징 계약이다.
+
+- 기준: 현지 시각 20:00. 이전에 끝나고 `observed_at`도 기준보다 이른 가입 후 기록만 허용한다. 늦게 수정된 일지는 이벤트 이력에서 당시 알려진 버전을 복원한다.
+- 정답: 다음 주수면의 **수면 시작**·최종 기상 시각. 일지 `bed`가 침대에 든 시각이면 `latency_min`을 더한다. `interval_min`은 시작~종료 간격이며 TST가 아니다.
+- 수리물리 단독은 S/C와 생활 위상으로 수면·각성 기준 통과를 5분 간격 모의한다. 데이터 단독 Ridge에 동일 입력과 물리 상태·예상 시각을 더한 것이 융합 Ridge다.
+- 결과: `available`, `cutoff`, `night_id`, `bed`, `wake`, `interval_min`, `preferred_model`, `predictions`, `model_version`, `artifact_sha256`, `feature_snapshot`, `personalization`, `test_metrics`.
+- `predictions`의 `physical`, `data`, `hybrid`, `hybrid_frozen`을 비교하며 대표 모델은 Validation으로 선택한다. Test로 재선택하지 않는다.
+- CMI/MESA는 연구용 집단 비교, Samsung은 본인 자료를 연결한 로컬 1인용이다. 일반 인구 적용은 검증되지 않았다.
+- Samsung 검증은 각 Validation/Test 시작에 가입을 새로 한 것으로 두고 기록을 0일로 초기화한다. 과거 Train 개인 평균만 초기값으로 유지한다.
+
+프로필의 `sex`는 `male/female/unspecified`, `activity_hours_per_day`는 0~24 또는 null이다. 활동시간을 운동시간으로 대신 추정하지 않는다. 18~80세 초기 수면 목표는 NHANES Train의 연령대·성별·활동량 관측 평균에서 충분한 집단(30명 이상)을 고르며 부족하면 넓은 집단, 지원 연령 밖에서는 가입 입력을 사용한다. 직업별 계수는 추정하지 않았다.
+
+`parameters.population_prior`에는 자료 버전·출처·표본 수·선택 집단·대체 이유가 남는다. `cumulative_valid_days`, `personalization_weight`로 장기 보정을 확인할 수 있다. 초기 추천의 관측 평균과 다음날 시각 예측의 Train 평균은 다른 목적의 사전값이며 임의로 합치지 않는다.
+
+실제 성능과 개인화 개선 여부는 [다음날 예측 검증 보고](NEXT_NIGHT_RESULTS_2026-10-20.md)에 기록했다. 융합이 데이터 단독보다 우월하다는 결과는 확인되지 않았으며, 생리 상수 추정이나 추천 효과 검증과 구분한다.

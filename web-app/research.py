@@ -9,6 +9,17 @@ from engine import ZONE, parse_date, clock_min, clock_mean
 from forecast_model import ForecastModelError, PortableForecastModel, completed_history_features
 
 
+def sanitize_archive_latency(value):
+    """Keep plausible minute-scale latency; this bound does not verify source units."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        result = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return result if math.isfinite(result) and 0 <= result <= 180 else None
+
+
 def load_data_readiness(path: Path | None) -> dict:
     unavailable = {"available": False, "status": "not_generated", "reason": "MESA 집계 점검 파일이 없습니다."}
     if path is None or not path.exists():
@@ -138,25 +149,32 @@ class ResearchBridge:
                 self.summary["warnings"].append(f"휴대형 행동 예측 모델 사용 불가: {error}")
         try:
             import pandas as pd
-            base = workspace / "260925" / "한서윤데이터_전처리" / "output"
+            archive = workspace / "보조데이터셋" / "개인기록_과거작업" / "260925"
+            if not archive.exists():
+                archive = workspace / "260925"
+            base = archive / "한서윤데이터_전처리" / "output"
             # macOS may store Korean filenames in decomposed Unicode.
             if not base.exists():
                 import unicodedata
-                base = next(p for p in workspace.glob("260925/*/output") if unicodedata.normalize("NFC", p.parent.name) == "한서윤데이터_전처리")
+                base = next(p for p in archive.glob("*/output") if unicodedata.normalize("NFC", p.parent.name) == "한서윤데이터_전처리")
             episodes = pd.read_parquet(base / "sleep_episodes.parquet")
             valid = episodes[episodes.is_main_sleep & episodes.episode_qc_pass].copy()
             daily = pd.read_parquet(base / "longitudinal_daily.parquet")
             step_days = daily.loc[daily.day_steps.notna() & (daily.step_day_coverage >= 0.8), "day_steps"]
             def number(value):
                 return float(value) if pd.notna(value) and math.isfinite(float(value)) else None
+            rejected_latency = 0
             for _, r in valid.iterrows():
                 bed, wake = parse_date(str(r.sleep_start)), parse_date(str(r.sleep_end))
                 actual = number(r.get("reported_sleep_min"))
                 interval = (wake - bed).total_seconds() / 60
                 if actual is None or actual <= 0 or actual > interval:
                     actual = max(0, interval - (number(r.get("awake_stage_min")) or 0))
+                raw_latency = number(r.get("sleep_latency_min"))
+                latency = sanitize_archive_latency(raw_latency)
+                rejected_latency += int(raw_latency is not None and latency is None)
                 self.records.append({"date": wake.date().isoformat(), "bed": bed.isoformat(), "wake": wake.isoformat(),
-                    "sleep_min": actual, "latency_min": number(r.get("sleep_latency_min")), "awake_min": number(r.get("awake_stage_min")),
+                    "sleep_min": actual, "latency_min": latency, "awake_min": number(r.get("awake_stage_min")),
                     "fatigue": None, "rested": None, "steps": None, "exercise_min": None, "source": "archive",
                     "note": "본인 Samsung Health 과거 자료 · 주 수면/QC 통과", "observed_at": None})
             # One principal episode per wake date, chosen by interval duration.
@@ -171,8 +189,15 @@ class ResearchBridge:
                 "average_sleep_h": float(sum(r["sleep_min"] for r in self.records) / len(self.records) / 60),
                 "average_steps": float(step_days.mean()) if len(step_days) else None,
                 "step_days": len(step_days), "first_date": min(r["date"] for r in self.records), "last_date": max(r["date"] for r in self.records),
+                "archive_latency_rejected_count": rejected_latency,
                 "population": "본인 1명 · 학생 집단 평균 아님"})
-            model_dir = next(p for p in workspace.iterdir() if p.is_dir() and __import__('unicodedata').normalize("NFC", p.name) == "미래예측모델")
+            if rejected_latency:
+                self.summary["warnings"].append(
+                    f"단위가 검증되지 않았거나 범위를 벗어난 과거 입면시간 {rejected_latency}건을 제외했습니다.")
+            model_root = workspace / "데이터모델"
+            if not model_root.exists():
+                model_root = workspace
+            model_dir = next(p for p in model_root.iterdir() if p.is_dir() and __import__('unicodedata').normalize("NFC", p.name) == "미래예측모델")
             self.metrics = json.loads((model_dir / "output/validation_report.json").read_text())
             spec = importlib.util.spec_from_file_location("existing_forecast", model_dir / "causal_sleep_timing_forecast.py")
             module = importlib.util.module_from_spec(spec); spec.loader.exec_module(module)
